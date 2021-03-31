@@ -1,0 +1,98 @@
+#!/bin/bash
+# Requires AWS CLI version 2.1.30
+
+set -e
+
+VERSION=0.1
+
+function command_to_array {
+    local plain_array=""
+    local IFS=' '
+    for item in $@; do
+        plain_array=$plain_array\"$item\"
+    done
+    echo "[$(echo $plain_array | sed 's/,/","/g')]"
+}
+
+while [[ $# > 0 ]]
+do
+    key="$1"
+
+    case $key in
+        -c|--cluster)
+            CLUSTER="$2"
+            shift
+            ;;
+        -d|--task-definition)
+            TASK_DEFINITION="$2"
+            shift
+            ;;
+        -l|--launch-type)
+            LAUNCH_TYPE="$2"
+            shift
+            ;;
+        -m|--command)
+            COMMAND="$(command_to_array $2)"
+            shift
+            ;;
+        -n|--container-name)
+            CONTAINER_NAME="$2"
+            shift
+            ;;
+        --subnets)
+            SUBNETS="$(command_to_array $2)"
+            shift
+            ;;
+        --security-groups)
+            SECURITY_GROUPS="$(command_to_array $2)"
+            shift
+            ;;
+        -r|--region)
+            AWS_REGION="$2"
+            shift
+            ;;
+        -v|--version)
+            echo "run-ecs-task version $VERSION"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: $1 is not a valid option"
+            exit 2
+        ;;
+    esac
+    shift
+done
+
+# For awsvpc network mode
+network_configuration=()
+if [[ ! -z $SUBNETS ]] && [[ ! -z $SECURITY_GROUPS ]]
+then
+    network_configuration+=(--network-configuration '{"awsvpcConfiguration": {"subnets": '"$SUBNETS"', "securityGroups": '"$SECURITY_GROUPS"'}}')
+fi
+
+run_result=$(aws ecs run-task \
+    --output text \
+    --cluster $CLUSTER \
+    --launch-type $LAUNCH_TYPE\
+    --region $AWS_REGION \
+    --task-definition $TASK_DEFINITION \
+    --overrides '{"containerOverrides": [{"name": "'"$CONTAINER_NAME"'", "command": '"$COMMAND"' }]}' \
+    "${network_configuration[@]}")
+
+task_arn=$(echo $run_result | awk '{print $12}')
+echo 'Task launched with ARN:' $task_arn
+
+echo 'Waiting task execution...'
+aws ecs wait tasks-stopped --cluster $CLUSTER --tasks $task_arn --region $AWS_REGION 
+
+task_return=$(aws ecs describe-tasks --output text --tasks $task_arn --cluster $CLUSTER --region $AWS_REGION)
+exit_code=$(echo $task_return | awk -F 'CONTAINERS' '{print $2}' | awk '{print $3}')
+
+if [ $exit_code -eq 0 ]
+then
+	echo 'Task executed successfully!'
+	exit $exit_code
+else
+	echo 'Task FAILED!'
+	exit $exit_code
+fi
