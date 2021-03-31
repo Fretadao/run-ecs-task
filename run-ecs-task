@@ -5,6 +5,27 @@ set -e
 
 VERSION=0.1
 
+function usage() {
+    cat <<EOM
+Script for running ECS tasks, wait for result and exits accordingly to the task result.
+
+Required arguments:
+    -c | --cluster             Name of ECS cluster
+    -d | --task-definition     Name of task definition to run
+    -l | --launch-type         Task launch type, supported values: "EC2", "FARGATE"
+    -m | --command             Command to execute on the task deploy(overrides image CMD). Command args must be separated by comma, eg.:  "sh,echo,\$FOO"
+    -n | --container-name      Container name defined by the task
+    -r | --region              Cluster region
+
+Optional arguments:
+    --subnets                  Subnets IDS for the task execution, supported only if the task network mode is "awsvpc". IDS must be separated by comma, eg.: "subnet-id1,subnet-id2"
+    --security-groups          Security groups IDS for the task execution, supported only if the task network mode is "awsvpc". IDS must be separated by comma, eg.: "sg-id1,sg-id2"
+    -v | --version             Display script version
+EOM
+
+    exit 0
+}
+
 function command_to_array {
     local plain_array=""
     local IFS=' '
@@ -13,6 +34,8 @@ function command_to_array {
     done
     echo "[$(echo $plain_array | sed 's/,/","/g')]"
 }
+
+if [ $# -eq 0 ]; then usage; fi
 
 while [[ $# > 0 ]]
 do
