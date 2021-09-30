@@ -18,10 +18,12 @@ Script for running ECS tasks, wait for result and exits accordingly to the task 
 Required arguments:
     -c | --cluster             Name of ECS cluster
     -d | --task-definition     Name of task definition to run
-    -l | --launch-type         Task launch type, supported values: "EC2", "FARGATE"
-    -m | --command             Command to execute on the task deploy(overrides image CMD). Command args must be separated by comma, eg.:  "sh,echo,$FOO"
+    -m | --command             Command to execute on the task deploy(overrides image CMD). Command args must be separated by comma, eg.:  "sh,echo,\$FOO"
     -n | --container-name      Container name defined by the task
     -r | --region              Cluster region
+    -l | --launch-type         Task launch type, supported values: "EC2", "FARGATE"
+    --capacity-provider        Capacity provider strategy in the format: '[{"capacityProvider": "Name", "weight": value, "base": value}, ...]'. When capacity provider is specified,
+                               launch-type must be empty
 
 Optional arguments:
     --subnets                  Subnets IDS for the task execution, supported only if the task network mode is "awsvpc". IDS must be separated by comma, eg.: "subnet-id1,subnet-id2"
