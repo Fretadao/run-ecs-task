@@ -12,10 +12,12 @@ Script for running ECS tasks, wait for result and exits accordingly to the task 
 Required arguments:
     -c | --cluster             Name of ECS cluster
     -d | --task-definition     Name of task definition to run
-    -l | --launch-type         Task launch type, supported values: "EC2", "FARGATE"
     -m | --command             Command to execute on the task deploy(overrides image CMD). Command args must be separated by comma, eg.:  "sh,echo,\$FOO"
     -n | --container-name      Container name defined by the task
     -r | --region              Cluster region
+    -l | --launch-type         Task launch type, supported values: "EC2", "FARGATE"
+    --capacity-provider        Capacity provider strategy in the format: '[{"capacityProvider": "Name", "weight": value, "base": value}, ...]'. When capacity provider is specified,
+                               launch-type must be empty
 
 Optional arguments:
     --subnets                  Subnets IDS for the task execution, supported only if the task network mode is "awsvpc". IDS must be separated by comma, eg.: "subnet-id1,subnet-id2"
@@ -74,6 +76,10 @@ do
             AWS_REGION="$2"
             shift
             ;;
+        --capacity-provider)
+            CAPACITY_PROVIDER="$2"
+            shift
+            ;;
         -v|--version)
             echo "run-ecs-task version $VERSION"
             exit 0
@@ -88,34 +94,51 @@ done
 
 # For awsvpc network mode
 network_configuration=()
-if [[ ! -z $SUBNETS ]] && [[ ! -z $SECURITY_GROUPS ]]
-then
+if [[ ! -z $SUBNETS ]] && [[ ! -z $SECURITY_GROUPS ]]; then
     network_configuration+=(--network-configuration '{"awsvpcConfiguration": {"subnets": '"$SUBNETS"', "securityGroups": '"$SECURITY_GROUPS"'}}')
 fi
 
+launch_strategy=()
+if [[ ! -z $LAUNCH_TYPE ]] && [[ ! -z $CAPACITY_PROVIDER ]]; then
+	echo "Specify either a --launch-type or --capacity-provider, not both!"
+	exit 1
+elif [[ ! -z $LAUNCH_TYPE ]]; then
+	launch_strategy+=(--launch-type $LAUNCH_TYPE)
+elif [[ ! -z $CAPACITY_PROVIDER ]]; then
+	IFS=""
+	launch_strategy+=(--capacity-provider-strategy $CAPACITY_PROVIDER)
+fi
+
 run_result=$(aws ecs run-task \
-    --output text \
+    --output json \
     --cluster $CLUSTER \
-    --launch-type $LAUNCH_TYPE\
     --region $AWS_REGION \
     --task-definition $TASK_DEFINITION \
     --overrides '{"containerOverrides": [{"name": "'"$CONTAINER_NAME"'", "command": '"$COMMAND"' }]}' \
+	"${launch_strategy[@]}" \
     "${network_configuration[@]}")
 
-task_arn=$(echo $run_result | awk '{print $12}')
-echo 'Task launched with ARN:' $task_arn
+
+task_arn=$(echo $run_result | jq '[.tasks[] | .containers[] | .taskArn]')
+echo 'Task(s) launched with ARN:' $task_arn
 
 echo 'Waiting task execution...'
-aws ecs wait tasks-stopped --cluster $CLUSTER --tasks $task_arn --region $AWS_REGION 
+aws ecs wait tasks-stopped --cluster $CLUSTER --tasks "$task_arn" --region $AWS_REGION 
 
-task_return=$(aws ecs describe-tasks --output text --tasks $task_arn --cluster $CLUSTER --region $AWS_REGION)
-exit_code=$(echo $task_return | awk -F 'CONTAINERS' '{print $2}' | awk '{print $3}')
+task_return=$(aws ecs describe-tasks --output json --tasks "$task_arn" --cluster $CLUSTER --region $AWS_REGION)
+readarray -t exit_codes < <(echo $task_return | jq '.tasks[] | .containers[] | .exitCode')
 
-if [ $exit_code -eq 0 ]
-then
-	echo 'Task executed successfully!'
-	exit $exit_code
-else
+failure=0
+for exit_code in ${exit_codes[@]}; do
+	if [ $exit_code != "0" ]; then
+		failure=1
+	fi
+done
+
+if [ $failure -eq 1 ]; then
 	echo 'Task FAILED!'
-	exit $exit_code
+	exit $failure
+else
+	echo 'Task executed successfully!'
+	exit $failure
 fi
