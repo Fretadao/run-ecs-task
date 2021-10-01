@@ -118,8 +118,7 @@ run_result=$(aws ecs run-task \
 	"${launch_strategy[@]}" \
     "${network_configuration[@]}")
 
-
-task_arn=$(echo $run_result | jq '[.tasks[] | .containers[] | .taskArn]')
+task_arn=$(echo $run_result | jq '[.tasks[] | .taskArn]')
 echo 'Task(s) launched with ARN:' $task_arn
 
 echo 'Waiting task execution...'
