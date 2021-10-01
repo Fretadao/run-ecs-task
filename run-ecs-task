@@ -120,7 +120,7 @@ run_result=$(aws ecs run-task \
 
 echo $run_result
 
-task_arn=$(echo $run_result | jq '[.tasks[] | .containers[] | .taskArn]')
+task_arn=$(echo $run_result | jq '[.tasks[] | .taskArn]')
 echo 'Task(s) launched with ARN:' $task_arn
 
 echo 'Waiting task execution...'
